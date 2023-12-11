@@ -19,3 +19,7 @@ Basic wsad, sprint, jump movements.
 **IndependentCameraControl.cs**
 
 Attach this to your main camera in the scene for camera controls.
+
+
+https://github.com/iMlearnDinG/Fishnet_NetObj_Respawn/assets/115088717/2c68f414-e90b-451b-a27d-5d6871fc8f85
+
