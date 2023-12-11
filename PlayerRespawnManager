@@ -1,0 +1,104 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using Unity.VisualScripting;
+
+public class PlayerRespawnManager : NetworkBehaviour
+{
+    public GameObject playerPrefab; // Assign your player prefab in the inspector
+    public Transform[] respawnPoints;
+    public float respawnDelay = 3f;
+    private Dictionary<NetworkObject, GameObject> activePlayerInstances = new Dictionary<NetworkObject, GameObject>();
+
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestRespawnServerRpc(NetworkObject playerNetObj)
+    {
+        StartCoroutine(RespawnCoroutine(playerNetObj));
+    }
+
+    private IEnumerator RespawnCoroutine(NetworkObject playerNetObj)
+    {
+        yield return new WaitForSeconds(respawnDelay);
+
+        if (playerNetObj != null)
+        {
+            GameObject playerInstance = Instantiate(playerPrefab);
+
+            Transform selectedRespawnPoint = respawnPoints[Random.Range(0, respawnPoints.Length)];
+            playerInstance.transform.position = selectedRespawnPoint.position;
+            playerInstance.transform.rotation = selectedRespawnPoint.rotation;
+
+            NetworkObject newPlayerNetObj = playerInstance.GetComponent<NetworkObject>();
+            if (newPlayerNetObj != null)
+            {
+                ServerManager.Spawn(newPlayerNetObj.gameObject);
+                Debug.Log("Spawned the player instance on the network.");
+
+                // Reinitialize player controls
+                PlayerControls playerControls = newPlayerNetObj.GetComponent<PlayerControls>();
+                if (playerControls != null)
+                {
+                    playerControls.ReinitializeControls();
+                }
+
+                // Notify observers about the respawn
+                NotifyRespawnObserversRpc(newPlayerNetObj);
+            }
+            else
+            {
+                Debug.LogError("Failed to find NetworkObject component on the instantiated player object.");
+            }
+        }
+    }
+
+    [ObserversRpc]
+    private void NotifyRespawnObserversRpc(NetworkObject playerNetObj)
+    {
+        if (playerNetObj == null) return;
+
+        var player = playerNetObj.gameObject;
+
+        // Reset player's state and reinitialize controls (which will also reattach the camera)
+        ResetPlayerStateAndAttachCamera(player);
+    }
+
+    private void ResetPlayerStateAndAttachCamera(GameObject player)
+    {
+        Rigidbody rb = player.GetComponent<Rigidbody>();
+    if (rb != null)
+    {
+        // Check if the Rigidbody is kinematic
+        bool isKinematic = rb.isKinematic;
+
+        // Set the velocity only if it's not kinematic
+        if (!isKinematic)
+        {
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+    }
+
+        // Check if the player GameObject is owned by this client
+        if (player.GetComponent<NetworkObject>().IsOwner)
+        {
+            // Attach the camera only if the player is the owner
+            AttachCameraToPlayer(player);
+        }
+    }
+
+    private void AttachCameraToPlayer(GameObject player)
+    {
+        Camera mainCamera = Camera.main;
+        if (mainCamera != null)
+        {
+            IndependentCameraControl cameraControl = mainCamera.GetComponent<IndependentCameraControl>();
+            if (cameraControl == null)
+            {
+                cameraControl = mainCamera.gameObject.AddComponent<IndependentCameraControl>();
+            }
+            cameraControl.playerTransform = player.transform;
+            Debug.Log("Attached the camera to the player.");
+        }
+    }
+}
