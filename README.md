@@ -14,8 +14,8 @@ Assign your player prefab and respawn points.
 
 **PlayerControls.cs**
 
-Basic wsad, sprint, jump jump movements.
+Basic wsad, sprint, jump movements.
 
 **IndependentCameraControl.cs**
 
-Attach this to your main camera in the scene.
+Attach this to your main camera in the scene for camera controls.
