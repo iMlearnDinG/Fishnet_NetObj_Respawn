@@ -1,23 +1,23 @@
 # Fishnet_Networking
 
-// Player Respawn //
+*// Player Respawn //*
 
-A simple script to setup a networked object for respawn upon despawn.
+A simple setup to respawn a network objected when it despawns due to an impact threshold.
 
-PlayerCollisionHandler.cs
+**PlayerCollisionHandler.cs**
 
 Attach this to your player prefab and edit the impact threshold.
 
-PlayerRespawnManager
+**PlayerRespawnManager**
 
 Attach this to a root gameobject which has a NetworkObject attached.
 
 Assign your player prefab and respawn points.
 
-PlayerControls.cs
+**PlayerControls.cs**
 
 Basic wsad, sprint, jump jump movements.
 
-IndependentCameraControl.cs
+**IndependentCameraControl.cs**
 
 Attach this to your main camera in the scene.
