@@ -2,87 +2,123 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using FishNet.Object;
-using Unity.VisualScripting;
+using FishNet.Managing;
+using FishNet.Connection;
+using FishNet;
 
 public class PlayerRespawnManager : NetworkBehaviour
 {
-    public GameObject playerPrefab; // Assign your player prefab in the inspector
+    public GameObject playerPrefab;
     public Transform[] respawnPoints;
     public float respawnDelay = 3f;
-    private Dictionary<NetworkObject, GameObject> activePlayerInstances = new Dictionary<NetworkObject, GameObject>();
+    private Dictionary<int, NetworkObject> pooledPlayerObjects = new Dictionary<int, NetworkObject>();
 
     [ServerRpc(RequireOwnership = false)]
-    public void RequestRespawnServerRpc(NetworkObject playerNetObj)
+    public void DespawnAndRespawnServerRpc(NetworkObject playerNetObj)
     {
-        StartCoroutine(RespawnCoroutine(playerNetObj));
+        Debug.Log($"[Server] DespawnAndRespawnServerRpc called for Client ID: {playerNetObj.Owner.ClientId}");
+
+        int clientId = playerNetObj.Owner.ClientId;
+
+        // Despawn the player object with pooling
+        playerNetObj.Despawn(DespawnType.Pool);
+
+        // Add the despawned object to the pool
+        if (!pooledPlayerObjects.ContainsKey(clientId))
+        {
+            pooledPlayerObjects.Add(clientId, playerNetObj);
+        }
+        else
+        {
+            pooledPlayerObjects[clientId] = playerNetObj;
+        }
+
+        // Call respawn after delay
+        StartCoroutine(RespawnCoroutine(clientId));
     }
 
-    private IEnumerator RespawnCoroutine(NetworkObject playerNetObj)
+    private IEnumerator RespawnCoroutine(int clientId)
     {
         yield return new WaitForSeconds(respawnDelay);
 
-        if (playerNetObj != null)
+        // Check if we have a pooled object for the given client ID
+        if (pooledPlayerObjects.TryGetValue(clientId, out NetworkObject pooledObject))
         {
-            GameObject playerInstance = Instantiate(playerPrefab);
-
-            Transform selectedRespawnPoint = respawnPoints[Random.Range(0, respawnPoints.Length)];
-            playerInstance.transform.position = selectedRespawnPoint.position;
-            playerInstance.transform.rotation = selectedRespawnPoint.rotation;
-
-            NetworkObject newPlayerNetObj = playerInstance.GetComponent<NetworkObject>();
-            if (newPlayerNetObj != null)
-            {
-                ServerManager.Spawn(newPlayerNetObj.gameObject);
-                Debug.Log("Spawned the player instance on the network.");
-
-                // Reinitialize player controls
-                PlayerControls playerControls = newPlayerNetObj.GetComponent<PlayerControls>();
-                if (playerControls != null)
-                {
-                    playerControls.ReinitializeControls();
-                }
-
-                // Notify observers about the respawn
-                NotifyRespawnObserversRpc(newPlayerNetObj);
-            }
-            else
-            {
-                Debug.LogError("Failed to find NetworkObject component on the instantiated player object.");
-            }
+            // Respawn the pooled player
+            RespawnPooledPlayerObject(pooledObject, clientId);
+        }
+        else
+        {
+            // If no pooled object, create a new instance
+            CreateAndSpawnPlayer(clientId);
         }
     }
 
-    [ObserversRpc]
-    private void NotifyRespawnObserversRpc(NetworkObject playerNetObj)
+    private void RespawnPooledPlayerObject(NetworkObject pooledObject, int clientId)
     {
-        if (playerNetObj == null) return;
+        Transform respawnPoint = GetRespawnPoint();
+        pooledObject.transform.position = respawnPoint.position;
+        pooledObject.transform.rotation = respawnPoint.rotation;
+        pooledObject.gameObject.SetActive(true);
 
-        var player = playerNetObj.gameObject;
+        if (InstanceFinder.ServerManager.Clients.TryGetValue(clientId, out NetworkConnection conn))
+        {
+            // Spawn the object with the specific client's connection to assign ownership.
+            InstanceFinder.ServerManager.Spawn(pooledObject.gameObject, conn);
 
-        // Reset player's state and reinitialize controls (which will also reattach the camera)
-        ResetPlayerStateAndAttachCamera(player);
+            Debug.Log($"[Server] Respawned pooled player instance for Client ID: {clientId}");
+
+            ResetPlayerStateAndAttachCamera(pooledObject.gameObject);
+        }
+        else
+        {
+            Debug.LogError($"[Server] No connection found for Client ID: {clientId}, cannot respawn pooled player object.");
+        }
+    }
+
+
+
+    private void CreateAndSpawnPlayer(int clientId)
+    {
+        GameObject playerInstance = Instantiate(playerPrefab, GetRespawnPoint().position, GetRespawnPoint().rotation);
+        NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
+        if (netObj != null)
+        {
+            if (InstanceFinder.ServerManager.Clients.TryGetValue(clientId, out NetworkConnection conn))
+            {
+                // Corrected Spawn method call
+                InstanceFinder.ServerManager.Spawn(playerInstance, conn);
+                Debug.Log($"[Server] Spawned new player instance for Client ID: {clientId}");
+            }
+            else
+            {
+                Debug.LogError("[Server] Failed to find a connection for Client ID: " + clientId);
+            }
+
+            ResetPlayerStateAndAttachCamera(playerInstance);
+        }
+        else
+        {
+            Debug.LogError("[Server] Failed to find NetworkObject component on the instantiated player object.");
+        }
+    }
+
+
+    private Transform GetRespawnPoint()
+    {
+        return respawnPoints[Random.Range(0, respawnPoints.Length)];
     }
 
     private void ResetPlayerStateAndAttachCamera(GameObject player)
     {
         Rigidbody rb = player.GetComponent<Rigidbody>();
-    if (rb != null)
-    {
-        // Check if the Rigidbody is kinematic
-        bool isKinematic = rb.isKinematic;
-
-        // Set the velocity only if it's not kinematic
-        if (!isKinematic)
+        if (rb != null && !rb.isKinematic)
         {
             rb.velocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
         }
-    }
-
-        // Check if the player GameObject is owned by this client
         if (player.GetComponent<NetworkObject>().IsOwner)
         {
-            // Attach the camera only if the player is the owner
             AttachCameraToPlayer(player);
         }
     }
@@ -92,11 +128,7 @@ public class PlayerRespawnManager : NetworkBehaviour
         Camera mainCamera = Camera.main;
         if (mainCamera != null)
         {
-            IndependentCameraControl cameraControl = mainCamera.GetComponent<IndependentCameraControl>();
-            if (cameraControl == null)
-            {
-                cameraControl = mainCamera.gameObject.AddComponent<IndependentCameraControl>();
-            }
+            var cameraControl = mainCamera.GetComponent<IndependentCameraControl>() ?? mainCamera.gameObject.AddComponent<IndependentCameraControl>();
             cameraControl.playerTransform = player.transform;
             Debug.Log("Attached the camera to the player.");
         }
