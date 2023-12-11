@@ -4,73 +4,55 @@ using FishNet.Object;
 public class PlayerCollisionHandler : NetworkBehaviour
 {
     public float forceThreshold = 10f;
-    private PlayerRespawnManager respawnManager;
-
-    private void Awake()
-    {
-        respawnManager = Object.FindFirstObjectByType<PlayerRespawnManager>();
-        if (respawnManager == null)
-        {
-            Debug.LogError("PlayerRespawnManager not found in the scene.");
-        }
-    }
 
     private void OnCollisionEnter(Collision collision)
     {
         if (!IsServer || collision.gameObject.CompareTag("Player") == false)
             return;
 
-        float collisionForce = collision.impulse.magnitude / Time.fixedDeltaTime;
-        Debug.Log("Collision detected, force: " + collisionForce);
+        // Calculate the relative velocity of the collision
+        Vector3 relativeVelocity = collision.relativeVelocity;
+        float collisionForce = relativeVelocity.magnitude;
 
-        // Check if this player is the initiator of the collision based on velocity
+        Debug.Log($"Collision detected, relative velocity: {relativeVelocity}, force: {collisionForce}");
+
+        // Get the rigidbodies of the colliding players
         Rigidbody hitPlayerRb = collision.rigidbody;
         Rigidbody thisPlayerRb = GetComponent<Rigidbody>();
+
+        // Check if the force of collision exceeds the threshold
         if (hitPlayerRb != null && thisPlayerRb != null && collisionForce > forceThreshold)
         {
-            if (thisPlayerRb.velocity.magnitude > hitPlayerRb.velocity.magnitude)
-            {
-                // This player is the initiator, so do not despawn
-                Debug.Log("This player is the initiator of the collision, not despawning.");
-                return;
-            }
+            // Calculate the force vectors at the point of impact
+            Vector3 thisPlayerForce = thisPlayerRb.GetPointVelocity(collision.contacts[0].point);
+            Vector3 hitPlayerForce = hitPlayerRb.GetPointVelocity(collision.contacts[0].point);
 
-            // This player is not the initiator, so trigger despawn
-            NetworkObject playerNetObj = GetComponent<NetworkObject>();
-            if (playerNetObj != null)
+            // Compare the magnitude of forces
+            if (thisPlayerForce.magnitude > hitPlayerForce.magnitude)
             {
-                Debug.Log("Despawning player due to collision force.");
-                // Before spawning the new player object, despawn the old one on the server.
-            ServerManager.Despawn(playerNetObj.gameObject);
-
-                TriggerRespawn(playerNetObj);
+                Debug.Log("This player has exerted a greater force, not despawning.");
             }
             else
             {
-                Debug.LogError("NetworkObject component not found on this player.");
+                // The other player has exerted a greater force, trigger despawn
+                NetworkObject playerNetObj = GetComponent<NetworkObject>();
+                if (playerNetObj != null)
+                {
+                    PlayerRespawnManager respawnManager = FindFirstObjectByType<PlayerRespawnManager>();
+                    if (respawnManager != null)
+                    {
+                        respawnManager.DespawnAndRespawnServerRpc(playerNetObj);
+                    }
+                    else
+                    {
+                        Debug.LogError("PlayerRespawnManager not found in the scene.");
+                    }
+                }
+                else
+                {
+                    Debug.LogError("NetworkObject component not found on this player.");
+                }
             }
         }
     }
-
-    private void TriggerRespawn(NetworkObject playerNetObj)
-    {
-        if (respawnManager != null && IsServer)
-        {
-            Debug.Log("Triggering respawn for player: " + playerNetObj.gameObject.name);
-
-            // Destroy the old player object
-            NetworkObject.Destroy(playerNetObj.gameObject);
-
-            // Request respawn for the new player object
-            respawnManager.RequestRespawnServerRpc(playerNetObj);
-
-            // Reinitialize controls (including camera attachment)
-            PlayerControls playerControls = playerNetObj.gameObject.GetComponent<PlayerControls>();
-            if (playerControls != null)
-            {
-                playerControls.ReinitializeControls();
-            }
-        }
-    }
-
 }
