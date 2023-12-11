@@ -1,0 +1,142 @@
+using UnityEngine;
+using FishNet.Object;
+
+public class PlayerControls : NetworkBehaviour
+{
+    public float moveSpeed = 5.0f;
+    public float sprintSpeed = 10.0f;
+    public float jumpForce = 7.0f;
+    public float additionalGravity = 30.0f;
+    public Vector3 cameraOffset = new Vector3(0, 4, -25);
+    public float airControl = 2.0f; // Control force applied in the air
+
+    private Rigidbody rb;
+    private Camera mainCamera;
+    private bool isGrounded;
+    private IndependentCameraControl cameraControl; // Add this variable
+
+    void Start()
+    {
+        Initialize();
+    }
+
+    public override void OnStartClient()
+    {
+        base.OnStartClient();
+        Initialize();
+    }
+
+    void Initialize()
+    {
+        rb = GetComponent<Rigidbody>();
+        mainCamera = Camera.main;
+        isGrounded = true;
+
+        if (IsOwner)
+        {
+            SetupCamera();
+        }
+    }
+
+    public void ReinitializeControls()
+    {
+        Initialize(); // Reinitialize the control states and camera setup
+    }
+
+    void Update()
+    {
+        if (!IsOwner) return;
+
+        Vector3 moveInput = new Vector3(Input.GetAxis("Horizontal"), 0.0f, Input.GetAxis("Vertical"));
+        Vector3 moveDirection = mainCamera.transform.TransformDirection(moveInput);
+        moveDirection.y = 0;
+
+        // Apply client-side movement prediction here for smoother controls
+
+        SendMovementInputToServer(moveDirection, Input.GetKey(KeyCode.LeftShift));
+
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            RequestJumpServerRpc();
+        }
+    }
+
+
+    void SetupCamera()
+    {
+        // Only proceed if this is the owner
+        if (!IsOwner) return;
+
+        Camera mainCamera = Camera.main;
+        if (mainCamera != null)
+        {
+            cameraControl = mainCamera.GetComponent<IndependentCameraControl>();
+            if (cameraControl == null)
+            {
+                cameraControl = mainCamera.gameObject.AddComponent<IndependentCameraControl>();
+            }
+            cameraControl.playerTransform = this.transform;
+            cameraControl.offset = cameraOffset;
+        }
+    }
+
+
+
+    private void SendMovementInputToServer(Vector3 moveDirection, bool isSprinting)
+    {
+        if (IsOwner)
+        {
+            MovePlayerServerRpc(moveDirection, isSprinting);
+        }
+    }
+
+    [ServerRpc]
+    private void MovePlayerServerRpc(Vector3 moveDirection, bool isSprinting)
+    {
+        if (!isGrounded)
+            return;
+
+        // Get the GameObject associated with this NetworkObject
+        GameObject playerObject = gameObject;
+
+        // Get the Rigidbody component from the GameObject
+        Rigidbody playerRigidbody = playerObject.GetComponent<Rigidbody>();
+
+        if (playerRigidbody != null)
+        {
+            // Apply movement on the server for this specific client's player object
+            Vector3 desiredVelocity = moveDirection.normalized * (isSprinting ? sprintSpeed : moveSpeed);
+            playerRigidbody.velocity = new Vector3(desiredVelocity.x, playerRigidbody.velocity.y, desiredVelocity.z);
+        }
+    }
+
+
+
+    [ServerRpc]
+    private void RequestJumpServerRpc()
+    {
+        if (isGrounded)
+        {
+            rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+            isGrounded = false;
+        }
+    }
+
+    void FixedUpdate()
+    {
+        if (!IsServer) return;
+
+        isGrounded = IsGrounded();
+        rb.AddForce(Vector3.down * additionalGravity, ForceMode.Acceleration);
+    }
+
+    private bool IsGrounded()
+    {
+        RaycastHit hit;
+        Vector3 origin = transform.position + (Vector3.up * 0.3f);
+        float distance = 5f;
+
+        bool isHit = Physics.Raycast(origin, Vector3.down, out hit, distance);
+        return isHit && hit.collider.CompareTag("Ground");
+    }
+}
