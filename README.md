@@ -1,6 +1,4 @@
-# Fishnet_Networking
-
-*// Player Respawn //*
+# Fishnet_Networking_Player_Respawn
 
 A simple setup to respawn a network objected when it despawns due to an impact threshold.
 
