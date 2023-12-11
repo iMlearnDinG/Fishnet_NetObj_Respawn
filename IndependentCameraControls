@@ -1,0 +1,46 @@
+using UnityEngine;
+
+public class IndependentCameraControl : MonoBehaviour
+{
+    public Transform playerTransform;
+    public Vector3 offset;
+    public float orbitSpeed = 2.0f;
+    public float pitchLimit = 45.0f;
+
+    private float rotationX = 0;
+    private float rotationY = 0;
+
+    void Start()
+    {
+        // Hide and lock the cursor
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    void LateUpdate()
+    {
+        if (playerTransform != null)
+        {
+            // Orbit around the player using mouse or gamepad right stick
+            float mouseX = Input.GetAxis("Mouse X") + Input.GetAxis("RightStickHorizontal");
+            float mouseY = Input.GetAxis("Mouse Y") + Input.GetAxis("RightStickVertical");
+
+            rotationY += mouseX * orbitSpeed;
+            rotationX += -mouseY * orbitSpeed;
+            rotationX = Mathf.Clamp(rotationX, -pitchLimit, pitchLimit);
+
+            Quaternion rotation = Quaternion.Euler(rotationX, rotationY, 0);
+            Vector3 positionOffset = rotation * offset;
+
+            transform.position = playerTransform.position + positionOffset;
+            transform.LookAt(playerTransform);
+        }
+    }
+
+    void OnDisable()
+    {
+        // Unlock and show the cursor when the script is disabled or the game object is inactive
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+}
