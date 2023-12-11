@@ -9,6 +9,7 @@ public class PlayerControls : NetworkBehaviour
     public float additionalGravity = 30.0f;
     public Vector3 cameraOffset = new Vector3(0, 4, -25);
     public float airControl = 2.0f; // Control force applied in the air
+    
 
     private Rigidbody rb;
     private Camera mainCamera;
